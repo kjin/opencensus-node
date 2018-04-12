@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-import {google} from 'googleapis';
 import * as uuidv4 from 'uuid/v4';
 
 import {debug} from '../internal/util';

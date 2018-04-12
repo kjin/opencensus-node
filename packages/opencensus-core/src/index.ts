@@ -1,3 +1,4 @@
+
 /**
  * Copyright 2018 Google Inc. All Rights Reserved.
  *
@@ -14,15 +15,15 @@
  * limitations under the License.
  */
 
+export * from './exporters/buffer';
+export * from './exporters/exporter';
+export * from './exporters/exporterOptions';
+export * from './internal/clock';
+export * from './internal/util';
+export * from './trace/config/sampler';
+export * from './trace/instrumentation/plugingtypes';
+export * from './trace/model/rootspan';
+export * from './trace/model/span';
+export * from './trace/model/tracer';
+export * from './trace/types/tracetypes';
 
-import {ExporterOptions} from "../exporterOptions"
-
-export class ZipkinOptions implements ExporterOptions {
-    url: string;
-    serviceName: string;
-
-    constructor(zipkinUrl: string, serviceName: string) {
-        this.url = zipkinUrl;
-        this.serviceName = serviceName;
-    }
-}
