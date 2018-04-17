@@ -21,7 +21,6 @@ import {Exporter} from '../exporters/types';
 
 export interface Tracing {
   readonly tracer: Tracer;
-  // readonly sampler: Sampler;
   readonly exporter: Exporter;
   start(opstion?:OptionsTracing): Tracing;
   stop(): void;
