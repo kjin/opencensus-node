@@ -17,57 +17,90 @@
 import * as assert from 'assert';
 import * as mocha from 'mocha';
 
-import {TracerImpl} from '../src/trace/model/tracer';
-import {RootSpanImpl} from '../src/trace/model/rootspan';
 import {SamplerImpl} from '../src/trace/config/sampler';
+import {RootSpanImpl} from '../src/trace/model/rootspan';
+import {TracerImpl} from '../src/trace/model/tracer';
+
 const tracer = new TracerImpl();
 
-
-describe('Sampler', function () {
-  const options = { name: "test" };
-  const callback = (root) => root;
-
-  describe('new Sampler()', function () {
-    it('should create a Sampler instance', function () {
+describe('Sampler', () => {
+  /**
+   * Should create a sampler
+   */
+  describe('new Sampler()', () => {
+    it('should create a Sampler instance', () => {
       const sampler = new SamplerImpl();
       assert.ok(sampler instanceof SamplerImpl);
     });
   });
 
-  describe('new Sampler(traceId)', function () {
-    it('should create a Sampler instance', function () {
+  /**
+   * Should create a sampler with traceId
+   */
+  describe('new Sampler(traceId)', () => {
+    it('should create a Sampler instance', () => {
       const root = new RootSpanImpl(tracer);
       const sampler = new SamplerImpl(root.traceId);
       assert.ok(sampler instanceof SamplerImpl);
     });
   });
 
-  describe('always()', function () {
-    it('should return a sampler instance', function () {
+  /**
+   * Should return the SamplerImpl
+   */
+  describe('always()', () => {
+    it('should return a sampler instance', () => {
       const sampler = new SamplerImpl();
       const samplerAlways = sampler.always();
       assert.ok(samplerAlways instanceof SamplerImpl);
     });
-
   });
 
-  describe('never()', function () {
-    it('should return a sampler instance', function () {
+  /**
+   * Should return the SamplerImpl
+   */
+  describe('never()', () => {
+    it('should return a sampler instance', () => {
       const sampler = new SamplerImpl();
-      const tracerNever = sampler.never();
-      assert.ok(tracerNever instanceof SamplerImpl);
+      const samplerNever = sampler.never();
+      assert.ok(samplerNever instanceof SamplerImpl);
     });
-
   });
 
-  describe('probability()', function () {
-    it('should return a sampler instance', function () {
+  /**
+   * Should return the SamplerImpl
+   */
+  describe('probability()', () => {
+    it('should return a sampler instance', () => {
       const PROBABILITY = 0.5;
       const sampler = new SamplerImpl();
-      const tracerProbability = sampler.probability(PROBABILITY);
-      assert.ok(tracerProbability instanceof SamplerImpl);
+      const samplerProbability = sampler.probability(PROBABILITY);
+      assert.ok(samplerProbability instanceof SamplerImpl);
     });
-
   });
 
+  /**
+   * Should return true
+   */
+  describe('shouldSample() always', () => {
+    it('should return true', () => {
+      const root = new RootSpanImpl(tracer);
+      const sampler = new SamplerImpl();
+      sampler.always();
+      const samplerShouldSampler = sampler.shouldSample(root.traceId);
+      assert.ok(samplerShouldSampler);
+    });
+  });
+  /**
+   * Should return false
+   */
+  describe('shouldSample() never', () => {
+    it('should return false', () => {
+      const root = new RootSpanImpl(tracer);
+      const sampler = new SamplerImpl();
+      sampler.never();
+      const samplerShouldSampler = sampler.shouldSample(root.traceId);
+      assert.ok(!samplerShouldSampler);
+    });
+  });
 });
