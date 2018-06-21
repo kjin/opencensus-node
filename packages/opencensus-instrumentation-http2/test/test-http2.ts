@@ -15,8 +15,7 @@
  */
 
 
-import {CoreTracer, RootSpan, Span, SpanEventListener, TracerConfig} from '@opencensus/core';
-import {logger} from '@opencensus/core';
+import {CoreTracer, RootSpan, Span, SpanEventListener, ConsoleLogger, SpanData} from '@opencensus/core';
 import * as assert from 'assert';
 import * as http2 from 'http2';
 import * as mocha from 'mocha';
@@ -29,16 +28,16 @@ import {Http2Plugin} from '../src/';
 const VERSION = process.versions.node;
 
 class RootSpanVerifier implements SpanEventListener {
-  endedRootSpans: RootSpan[] = [];
+  endedSpans: SpanData[] = [];
 
-  onStartSpan(root: RootSpan): void {}
-  onEndSpan(root: RootSpan) {
-    this.endedRootSpans.push(root);
+  onStartSpan(): void {}
+  onEndSpan(span: SpanData) {
+    this.endedSpans.push(span);
   }
 }
 
 function assertSpanAttributes(
-    span: Span, httpStatusCode: number, httpMethod: string, hostName: string,
+    span: SpanData, httpStatusCode: number, httpMethod: string, hostName: string,
     path: string, userAgent: string) {
   assert.strictEqual(
       span.status, Http2Plugin.convertTraceStatus(httpStatusCode));
@@ -88,7 +87,7 @@ describe('Http2Plugin', () => {
   const host = `localhost:${serverPort}`;
   const authority = `http://${host}`;
 
-  const log = logger.logger();
+  const log = new ConsoleLogger();
   const tracer = new CoreTracer();
   const rootSpanVerifier = new RootSpanVerifier();
   tracer.start({samplingRate: 1, logger: log});
@@ -115,7 +114,7 @@ describe('Http2Plugin', () => {
   });
 
   beforeEach(() => {
-    rootSpanVerifier.endedRootSpans = [];
+    rootSpanVerifier.endedSpans = [];
   });
 
   after(() => {
@@ -130,15 +129,15 @@ describe('Http2Plugin', () => {
       const statusCode = 200;
       const testPath = `/${statusCode}`;
       const requestOptions = {':method': 'GET', ':path': testPath};
-      assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+      assert.strictEqual(rootSpanVerifier.endedSpans.length, 0);
 
       await http2Request.get(client, requestOptions).then((result) => {
         assert.strictEqual(result, `${statusCode}`);
-        assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 2);
+        assert.strictEqual(rootSpanVerifier.endedSpans.length, 2);
         assert.ok(
-            rootSpanVerifier.endedRootSpans[1].name.indexOf(testPath) >= 0);
+            rootSpanVerifier.endedSpans[1].name.indexOf(testPath) >= 0);
 
-        const span = rootSpanVerifier.endedRootSpans[1];
+        const span = rootSpanVerifier.endedSpans[1];
         assertSpanAttributes(span, 200, 'GET', host, testPath, undefined);
       });
     });
@@ -150,16 +149,16 @@ describe('Http2Plugin', () => {
          async () => {
            const testPath = `/${errorCode}`;
            const requestOptions = {':method': 'GET', ':path': testPath};
-           assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+           assert.strictEqual(rootSpanVerifier.endedSpans.length, 0);
 
            await http2Request.get(client, requestOptions).then((result) => {
              assert.strictEqual(result, errorCode.toString());
-             assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 2);
+             assert.strictEqual(rootSpanVerifier.endedSpans.length, 2);
              assert.ok(
-                 rootSpanVerifier.endedRootSpans[1].name.indexOf(testPath) >=
+                 rootSpanVerifier.endedSpans[1].name.indexOf(testPath) >=
                  0);
 
-             const span = rootSpanVerifier.endedRootSpans[1];
+             const span = rootSpanVerifier.endedSpans[1];
              assertSpanAttributes(
                  span, errorCode, 'GET', host, testPath, undefined);
            });
@@ -194,8 +193,9 @@ describe('Http2Plugin', () => {
            const options = {name: 'TestRootSpan'};
 
            return tracer.startRootSpan(options, async (root: RootSpan) => {
+             const rootSpanData = root.data;
              await http2Request.get(client, requestOptions).then((result) => {
-               assert.ok(root.name.indexOf('TestRootSpan') >= 0);
+               assert.ok(rootSpanData.name.indexOf('TestRootSpan') >= 0);
                assert.strictEqual(root.spans.length, 1);
                assert.ok(root.spans[0].name.indexOf(testPath) >= 0);
                assert.strictEqual(root.traceId, root.spans[0].traceId);
@@ -224,9 +224,9 @@ describe('Http2Plugin', () => {
             assert.strictEqual(root.traceId, root.spans[i].traceId);
           });
         }
-        assert.strictEqual(rootSpanVerifier.endedRootSpans.length, num);
+        assert.strictEqual(rootSpanVerifier.endedSpans.length, num);
         root.end();
-        assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 1 + num);
+        assert.strictEqual(rootSpanVerifier.endedSpans.length, 1 + num);
       });
     });
 
@@ -240,10 +240,10 @@ describe('Http2Plugin', () => {
            'x-opencensus-outgoing-request': 1
          };
 
-         assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+         assert.strictEqual(rootSpanVerifier.endedSpans.length, 0);
          await http2Request.get(client, requestOptions).then((result) => {
            assert.strictEqual(result, `${statusCode}`);
-           assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 1);
+           assert.strictEqual(rootSpanVerifier.endedSpans.length, 1);
          });
        });
   });
@@ -260,13 +260,13 @@ describe('Http2Plugin', () => {
         'User-Agent': 'Android'
       };
 
-      assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+      assert.strictEqual(rootSpanVerifier.endedSpans.length, 0);
 
       await http2Request.get(client, requestOptions).then((result) => {
         assert.ok(
-            rootSpanVerifier.endedRootSpans[0].name.indexOf(testPath) >= 0);
-        assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 2);
-        const span = rootSpanVerifier.endedRootSpans[0];
+            rootSpanVerifier.endedSpans[0].name.indexOf(testPath) >= 0);
+        assert.strictEqual(rootSpanVerifier.endedSpans.length, 2);
+        const span = rootSpanVerifier.endedSpans[0];
         assertSpanAttributes(span, 200, 'GET', host, testPath, 'Android');
       });
     });

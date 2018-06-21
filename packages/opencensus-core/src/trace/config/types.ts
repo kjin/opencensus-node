@@ -19,14 +19,23 @@ import {Exporter} from '../../exporters/types';
 import {PluginNames} from '../instrumentation/types';
 import {Propagation} from '../propagation/types';
 
-/** Interface configuration for a buffer. */
+/**
+ * An interface that represents configuraiton options for ExporterBuffer.
+ */
 export interface BufferConfig {
-  /** Maximum size of a buffer. */
-  bufferSize?: number;
-  /** Max time for a buffer can wait before being sent */
-  bufferTimeout?: number;
-  /** A logger object  */
-  logger?: Logger;
+  /**
+   * The number of root spans to accumulate before flushing.
+   */
+  bufferSize: number;
+  /**
+   * The amount of time to wait since the most recent accumulated span before
+   * flushing, in milliseconds.
+   */
+  bufferTimeout: number;
+  /**
+   * A logger object.
+   */
+  logger: Logger;
 }
 
 /** Defines tracer configuration parameters */

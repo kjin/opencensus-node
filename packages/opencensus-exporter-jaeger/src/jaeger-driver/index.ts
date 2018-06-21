@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import {Span} from '@opencensus/core';
+import {Span, SpanData} from '@opencensus/core';
 import * as path from 'path';
 
 const indexPath = path.dirname(require.resolve('jaeger-client'));
@@ -47,7 +47,7 @@ export type SenderCallback = (numSpans: number, err?: string) => void;
  * Translate opencensus Span to Jeager Thrift Span
  * @param span
  */
-export function spanToThrift(span: Span) {
+export function spanToThrift(span: SpanData) {
   let spanTags = [];
   if (span.attributes) {
     const tags = [];
@@ -58,20 +58,19 @@ export function spanToThrift(span: Span) {
   }
 
   const spanLogs = [];
-  const unsigned = true;
-  const length = span.spanContext.traceId.length;
+  const spanDuration = span.endTime - span.startTime;
 
   return {
-    traceIdLow: Utils.encodeInt64(span.spanContext.traceId),
+    traceIdLow: Utils.encodeInt64(span.traceId),
     traceIdHigh: ThriftUtils.emptyBuffer,
-    spanId: Utils.encodeInt64(span.spanContext.spanId),
+    spanId: Utils.encodeInt64(span.spanId),
     parentSpanId: span.parentSpanId || ThriftUtils.emptyBuffer,
     operationName: span.name,
     references: [],
-    flags: span.spanContext.options || 0x1,
+    flags: 0x1,
     startTime:
-        Utils.encodeInt64(span.startTime.getTime() * 1000),  // to microseconds
-    duration: Utils.encodeInt64(span.duration * 1000),       // to microseconds
+        Utils.encodeInt64(span.startTime * 1000),  // to microseconds
+    duration: Utils.encodeInt64(spanDuration * 1000),        // to microseconds
     tags: spanTags,
     logs: spanLogs,
   };

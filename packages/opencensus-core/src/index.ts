@@ -41,5 +41,4 @@ export * from './exporters/exporter-buffer';
 export * from './exporters/console-exporter';
 
 // logger
-import * as logger from './common/console-logger';
-export {logger};
+export * from './common/console-logger';

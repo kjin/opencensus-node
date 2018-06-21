@@ -14,13 +14,8 @@
  * limitations under the License.
  */
 
-import {CoreTracer, RootSpan, TracerConfig} from '@opencensus/core';
-import {logger, Logger} from '@opencensus/core';
+import {CoreTracer, ConsoleLogger} from '@opencensus/core';
 import * as assert from 'assert';
-import * as fs from 'fs';
-import * as mocha from 'mocha';
-import * as nock from 'nock';
-import * as shimmer from 'shimmer';
 
 import {JaegerTraceExporter, JaegerTraceExporterOptions} from '../src/';
 import {UDPSender} from '../src/jaeger-driver';
@@ -41,7 +36,7 @@ const OPENCENSUS_NETWORK_TESTS =
 
 
 describe('Jaeger Exporter', () => {
-  const testLogger = logger.logger('debug');
+  const testLogger = new ConsoleLogger('debug');
   const dryrun = !OPENCENSUS_NETWORK_TESTS;
   let exporterOptions: JaegerTraceExporterOptions;
   let exporter: JaegerTraceExporter;
@@ -84,7 +79,7 @@ describe('Jaeger Exporter', () => {
         span.end();
         rootSpan.end();
 
-        return exporter.publish([rootSpan]).then((result) => {
+        return exporter.publish([rootSpan.data]).then((result) => {
           assert.strictEqual(result, 2);
         });
       });

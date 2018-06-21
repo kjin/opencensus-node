@@ -23,8 +23,8 @@ import {SamplerBuilder} from '../sampler/sampler';
 import * as samplerTypes from '../sampler/types';
 
 import {RootSpan} from './root-span';
-import {Span} from './span';
 import * as types from './types';
+import {Span, SpanData, SpanKind} from './types';
 
 
 /**
@@ -106,8 +106,10 @@ export class CoreTracer implements types.Tracer {
    * @param options A TraceOptions object to start a root span.
    * @param fn A callback function to run after starting a root span.
    */
-  startRootSpan<T>(
-      options: types.TraceOptions, fn: (root: types.RootSpan) => T): T {
+  startRootSpan<T>(options: types.SpanOptions, fn: (root: types.RootSpan) => T):
+      T {
+    // Don't modify the input options object.
+    options = Object.assign({kind: SpanKind.SERVER}, options);
     return this.contextManager.runAndReturn((root) => {
       let newRoot = null;
       if (this.active) {
@@ -123,12 +125,13 @@ export class CoreTracer implements types.Tracer {
             options.spanContext = null;
           }
         }
-        const aRoot = new RootSpan(this, options);
+        const aRoot = new RootSpan(this.logger, options);
         const sampleDecision: boolean = propagatedSample ?
             propagatedSample :
-            this.sampler.shouldSample(aRoot.traceId);
+            this.sampler.shouldSample(aRoot.getSpanContext().traceId);
 
         if (sampleDecision) {
+          aRoot.registerSpanEventListener(this);
           this.currentRootSpan = aRoot;
           aRoot.start();
           newRoot = aRoot;
@@ -140,15 +143,8 @@ export class CoreTracer implements types.Tracer {
     });
   }
 
-  onStartSpan(root: types.RootSpan): void {
+  onStartSpan(root: SpanData): void {
     if (this.active) {
-      if (!root) {
-        return this.logger.debug('cannot start trace - no active trace found');
-      }
-      if (this.currentRootSpan !== root) {
-        this.logger.debug(
-            'currentRootSpan != root on notifyStart. Need more investigation.');
-      }
       this.notifyStartSpan(root);
     }
   }
@@ -157,15 +153,8 @@ export class CoreTracer implements types.Tracer {
    * Is called when a span is ended.
    * @param root The ended span.
    */
-  onEndSpan(root: types.RootSpan): void {
+  onEndSpan(root: SpanData): void {
     if (this.active) {
-      if (!root) {
-        return this.logger.debug('cannot end trace - no active trace found');
-      }
-      if (this.currentRootSpan !== root) {
-        this.logger.debug(
-            'currentRootSpan != root on notifyEnd. Need more investigation.');
-      }
       this.notifyEndSpan(root);
     }
   }
@@ -189,21 +178,21 @@ export class CoreTracer implements types.Tracer {
     }
   }
 
-  private notifyStartSpan(root: types.RootSpan) {
+  private notifyStartSpan(span: SpanData) {
     this.logger.debug('starting to notify listeners the start of rootspans');
     if (this.eventListenersLocal && this.eventListenersLocal.length > 0) {
       for (const listener of this.eventListenersLocal) {
-        listener.onStartSpan(root);
+        listener.onStartSpan(span);
       }
     }
   }
 
-  private notifyEndSpan(root: types.RootSpan) {
+  private notifyEndSpan(span: SpanData) {
     if (this.active) {
       this.logger.debug('starting to notify listeners the end of rootspans');
       if (this.eventListenersLocal && this.eventListenersLocal.length > 0) {
         for (const listener of this.eventListenersLocal) {
-          listener.onEndSpan(root);
+          listener.onEndSpan(span);
         }
       }
     } else {
@@ -222,13 +211,13 @@ export class CoreTracer implements types.Tracer {
    * @param type The span type.
    * @param parentSpanId The parent span ID.
    */
-  startChildSpan(name?: string, type?: string): types.Span {
-    let newSpan: types.Span = null;
+  startChildSpan(name: string, kind: types.SpanKind = SpanKind.CLIENT): Span {
+    let newSpan: Span = null;
     if (!this.currentRootSpan) {
       this.logger.debug(
           'no current trace found - must start a new root span first');
     } else {
-      newSpan = this.currentRootSpan.startChildSpan(name, type);
+      newSpan = this.currentRootSpan.startChildSpan(name, kind);
     }
     return newSpan;
   }

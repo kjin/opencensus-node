@@ -14,16 +14,11 @@
  * limitations under the License.
  */
 
-import {CoreTracer, RootSpan, Span, SpanEventListener, TracerConfig} from '@opencensus/core';
-import {logger} from '@opencensus/core';
+import {CoreTracer, RootSpan, SpanEventListener, SpanData, ConsoleLogger} from '@opencensus/core';
 import * as assert from 'assert';
 import * as fs from 'fs';
-import {IncomingMessage} from 'http';
 import * as https from 'https';
-import * as mocha from 'mocha';
 import * as nock from 'nock';
-import * as shimmer from 'shimmer';
-import * as url from 'url';
 
 import {plugin} from '../src/';
 import {HttpsPlugin} from '../src/';
@@ -67,12 +62,22 @@ const httpRequest = {
 
 const VERSION = process.versions.node;
 
-class RootSpanVerifier implements SpanEventListener {
-  endedRootSpans: RootSpan[] = [];
+class SpanVerifier implements SpanEventListener {
+  readonly endedRootSpans: SpanData[] = [];
+  readonly endedChildSpans: SpanData[] = [];
 
-  onStartSpan(span: RootSpan): void {}
-  onEndSpan(root: RootSpan) {
-    this.endedRootSpans.push(root);
+  clear() {
+    this.endedRootSpans.length = 0;
+    this.endedChildSpans.length = 0;
+  }
+
+  onStartSpan(): void {}
+  onEndSpan(span: SpanData) {
+    if (span.sameProcessAsParentSpan) {
+      this.endedChildSpans.push(span);
+    } else {
+      this.endedRootSpans.push(span);
+    }
   }
 }
 
@@ -82,7 +87,7 @@ const httpsOptions = {
 };
 
 function assertSpanAttributes(
-    span: Span, httpStatusCode: number, httpMethod: string, hostName: string,
+    span: SpanData, httpStatusCode: number, httpMethod: string, hostName: string,
     path: string, userAgent: string) {
   assert.strictEqual(
       span.status, HttpsPlugin.convertTraceStatus(httpStatusCode));
@@ -105,9 +110,9 @@ describe('HttpsPlugin', () => {
   let serverPort = 3000;
 
   let server: https.Server;
-  const log = logger.logger();
+  const log = new ConsoleLogger();
   const tracer = new CoreTracer();
-  const rootSpanVerifier = new RootSpanVerifier();
+  const spanVerifier = new SpanVerifier();
   tracer.start({samplingRate: 1, logger: log});
 
   it('should return a plugin', () => {
@@ -116,7 +121,7 @@ describe('HttpsPlugin', () => {
 
   before(() => {
     plugin.enable(https, tracer, VERSION, null);
-    tracer.registerSpanEventListener(rootSpanVerifier);
+    tracer.registerSpanEventListener(spanVerifier);
     server = https.createServer(httpsOptions, (request, response) => {
       response.end('Test Server Response');
     });
@@ -131,7 +136,7 @@ describe('HttpsPlugin', () => {
   });
 
   beforeEach(() => {
-    rootSpanVerifier.endedRootSpans = [];
+    spanVerifier.clear();
     nock.cleanAll();
   });
 
@@ -149,15 +154,15 @@ describe('HttpsPlugin', () => {
            async () => {
              const testPath = '/outgoing/rootSpan/1';
              doNock(urlHost, testPath, 200, 'Ok');
-             assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+             assert.strictEqual(spanVerifier.endedRootSpans.length, 0);
              await requestMethod(`${urlHost}${testPath}`).then((result) => {
                assert.strictEqual(result, 'Ok');
                assert.ok(
-                   rootSpanVerifier.endedRootSpans[0].name.indexOf(testPath) >=
+                   spanVerifier.endedRootSpans[0].name.indexOf(testPath) >=
                    0);
-               assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 1);
+               assert.strictEqual(spanVerifier.endedRootSpans.length, 1);
 
-               const span = rootSpanVerifier.endedRootSpans[0];
+               const span = spanVerifier.endedRootSpans[0];
                assertSpanAttributes(
                    span, 200, 'GET', hostName, testPath, undefined);
              });
@@ -173,14 +178,14 @@ describe('HttpsPlugin', () => {
                doNock(
                    urlHost, testPath, httpErrorCodes[i],
                    httpErrorCodes[i].toString());
-               assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+               assert.strictEqual(spanVerifier.endedRootSpans.length, 0);
                await requestMethod(`${urlHost}${testPath}`).then((result) => {
                  assert.strictEqual(result, httpErrorCodes[i].toString());
                  assert.ok(
-                     rootSpanVerifier.endedRootSpans[0].name.indexOf(
+                     spanVerifier.endedRootSpans[0].name.indexOf(
                          testPath) >= 0);
-                 assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 1);
-                 const span = rootSpanVerifier.endedRootSpans[0];
+                 assert.strictEqual(spanVerifier.endedRootSpans.length, 1);
+                 const span = spanVerifier.endedRootSpans[0];
                  assertSpanAttributes(
                      span, httpErrorCodes[i], 'GET', hostName, testPath,
                      undefined);
@@ -195,13 +200,15 @@ describe('HttpsPlugin', () => {
           const options = {name: 'TestRootSpan'};
           return tracer.startRootSpan(options, async (root: RootSpan) => {
             await requestMethod(`${urlHost}${testPath}`).then((result) => {
-              assert.ok(root.name.indexOf('TestRootSpan') >= 0);
-              assert.strictEqual(root.spans.length, 1);
-              assert.ok(root.spans[0].name.indexOf(testPath) >= 0);
-              assert.strictEqual(root.traceId, root.spans[0].traceId);
-              const span = root.spans[0];
-              assertSpanAttributes(
-                  span, 200, 'GET', hostName, testPath, undefined);
+              root.end();
+              assert.strictEqual(spanVerifier.endedRootSpans.length, 1);
+              assert.strictEqual(spanVerifier.endedChildSpans.length, 1);
+              const rootSpanData = spanVerifier.endedRootSpans[0];
+              const childSpanData = spanVerifier.endedChildSpans[0];
+              assert.ok(rootSpanData.name.indexOf('TestRootSpan') >= 0);
+              assert.ok(childSpanData.name.indexOf(testPath) >= 0);
+              assert.strictEqual(childSpanData.traceId, rootSpanData.traceId);
+              assertSpanAttributes(childSpanData, 200, 'GET', hostName, testPath, undefined);
             });
           });
         });
@@ -217,15 +224,18 @@ describe('HttpsPlugin', () => {
                const options = {name: 'TestRootSpan'};
                return tracer.startRootSpan(options, async (root: RootSpan) => {
                  await requestMethod(`${urlHost}${testPath}`).then((result) => {
-                   assert.ok(root.name.indexOf('TestRootSpan') >= 0);
-                   assert.strictEqual(root.spans.length, 1);
-                   assert.ok(root.spans[0].name.indexOf(testPath) >= 0);
-                   assert.strictEqual(root.traceId, root.spans[0].traceId);
-
-                   const span = root.spans[0];
-                   assertSpanAttributes(
-                       span, httpErrorCodes[i], 'GET', hostName, testPath,
-                       undefined);
+                  root.end();
+                  assert.strictEqual(spanVerifier.endedRootSpans.length, 1);
+                  assert.strictEqual(spanVerifier.endedChildSpans.length, 1);
+                  const rootSpanData = spanVerifier.endedRootSpans[0];
+                  const childSpanData = spanVerifier.endedChildSpans[0];
+                  assert.ok(rootSpanData.name.indexOf('TestRootSpan') >= 0);
+                  assert.ok(childSpanData.name.indexOf(testPath) >= 0);
+                  assert.strictEqual(childSpanData.traceId, rootSpanData.traceId);
+   
+                  assertSpanAttributes(
+                      childSpanData, httpErrorCodes[i], 'GET', hostName, testPath,
+                      undefined);
                  });
                });
              });
@@ -245,9 +255,9 @@ describe('HttpsPlugin', () => {
                 assert.strictEqual(root.traceId, root.spans[i].traceId);
               });
             }
-            assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+            assert.strictEqual(spanVerifier.endedSpans.length, 0);
             root.end();
-            assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 1);
+            assert.strictEqual(spanVerifier.endedSpans.length, 1);
           });
         });
 
@@ -262,10 +272,10 @@ describe('HttpsPlugin', () => {
                headers: {'x-opencensus-outgoing-request': 1}
              };
 
-             assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+             assert.strictEqual(spanVerifier.endedSpans.length, 0);
              await requestMethod(options).then((result) => {
                assert.equal(result, 'Ok');
-               assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+               assert.strictEqual(spanVerifier.endedSpans.length, 0);
              });
            });
       });
@@ -286,13 +296,13 @@ describe('HttpsPlugin', () => {
       };
       nock.enableNetConnect();
 
-      assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+      assert.strictEqual(spanVerifier.endedSpans.length, 0);
 
       await httpRequest.request(options).then((result) => {
         assert.ok(
-            rootSpanVerifier.endedRootSpans[0].name.indexOf(testPath) >= 0);
-        assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 2);
-        const span = rootSpanVerifier.endedRootSpans[0];
+            spanVerifier.endedSpans[0].name.indexOf(testPath) >= 0);
+        assert.strictEqual(spanVerifier.endedSpans.length, 2);
+        const span = spanVerifier.endedSpans[0];
         assertSpanAttributes(
             span, 200, 'GET', 'localhost', testPath, 'Android');
       });
@@ -307,9 +317,9 @@ describe('HttpsPlugin', () => {
 
       const options = {host: 'localhost', path: testPath, port: serverPort};
 
-      assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+      assert.strictEqual(spanVerifier.endedSpans.length, 0);
       await httpRequest.request(options).then((result) => {
-        assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+        assert.strictEqual(spanVerifier.endedSpans.length, 0);
       });
     });
   });

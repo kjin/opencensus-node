@@ -14,17 +14,11 @@
  * limitations under the License.
  */
 
-import {CoreTracer, RootSpan, Span, SpanEventListener} from '@opencensus/core';
-import {logger} from '@opencensus/core';
+import {CoreTracer, RootSpan, SpanEventListener, SpanData} from '@opencensus/core';
 import * as assert from 'assert';
-import {accessSync} from 'fs';
-import * as http from 'http';
-import * as mocha from 'mocha';
 import * as mongodb from 'mongodb';
-import * as semver from 'semver';
 
 import {plugin} from '../src/';
-import {MongoDBPlugin} from '../src/';
 
 export type MongoDBAccess = {
   client: mongodb.MongoClient,
@@ -33,11 +27,11 @@ export type MongoDBAccess = {
 
 /** Collects ended root spans to allow for later analysis. */
 class RootSpanVerifier implements SpanEventListener {
-  endedRootSpans: RootSpan[] = [];
+  endedSpans: SpanData[] = [];
 
-  onStartSpan(span: RootSpan): void {}
-  onEndSpan(root: RootSpan) {
-    this.endedRootSpans.push(root);
+  onStartSpan(): void {}
+  onEndSpan(span: SpanData) {
+    this.endedSpans.push(span);
   }
 }
 
@@ -72,12 +66,11 @@ function accessCollection(url: string, dbName: string, collectionName: string):
 function assertSpan(
     rootSpanVerifier: RootSpanVerifier, expectedName: string,
     expectedKind: string) {
-  assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 1);
-  assert.strictEqual(rootSpanVerifier.endedRootSpans[0].spans.length, 1);
+  assert.strictEqual(rootSpanVerifier.endedSpans.length, 1);
   assert.strictEqual(
-      rootSpanVerifier.endedRootSpans[0].spans[0].name, expectedName);
+      rootSpanVerifier.endedSpans[0].name, expectedName);
   assert.strictEqual(
-      rootSpanVerifier.endedRootSpans[0].spans[0].kind, expectedKind);
+      rootSpanVerifier.endedSpans[0].kind, expectedKind);
 }
 
 describe('MongoDBPlugin', () => {
@@ -126,7 +119,7 @@ describe('MongoDBPlugin', () => {
     if (!shouldTest) {
       this.skip();
     }
-    rootSpanVerifier.endedRootSpans = [];
+    rootSpanVerifier.endedSpans = [];
     // Non traced insertion of basic data to perform tests
     const insertData = [{a: 1}, {a: 2}, {a: 3}];
     collection.insertMany(insertData, (err, result) => {
@@ -151,7 +144,7 @@ describe('MongoDBPlugin', () => {
 
       tracer.startRootSpan({name: 'insertRootSpan'}, (rootSpan: RootSpan) => {
         collection.insertMany(insertData, (err, result) => {
-          assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+          assert.strictEqual(rootSpanVerifier.endedSpans.length, 0);
           rootSpan.end();
           assert.ifError(err);
           assertSpan(
@@ -165,7 +158,7 @@ describe('MongoDBPlugin', () => {
     it('should create a child span for update', (done) => {
       tracer.startRootSpan({name: 'updateRootSpan'}, (rootSpan: RootSpan) => {
         collection.updateOne({a: 2}, {$set: {b: 1}}, (err, result) => {
-          assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+          assert.strictEqual(rootSpanVerifier.endedSpans.length, 0);
           rootSpan.end();
           assert.ifError(err);
           assertSpan(
@@ -179,7 +172,7 @@ describe('MongoDBPlugin', () => {
     it('should create a child span for remove', (done) => {
       tracer.startRootSpan({name: 'removeRootSpan'}, (rootSpan: RootSpan) => {
         collection.deleteOne({a: 3}, (err, result) => {
-          assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+          assert.strictEqual(rootSpanVerifier.endedSpans.length, 0);
           rootSpan.end();
           assert.ifError(err);
           assertSpan(
@@ -196,7 +189,7 @@ describe('MongoDBPlugin', () => {
     it('should create a child span for find', (done) => {
       tracer.startRootSpan({name: 'findRootSpan'}, (rootSpan: RootSpan) => {
         collection.find({}).toArray((err, result) => {
-          assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+          assert.strictEqual(rootSpanVerifier.endedSpans.length, 0);
           rootSpan.end();
           assert.ifError(err);
           assertSpan(
@@ -213,7 +206,7 @@ describe('MongoDBPlugin', () => {
     it('should create a child span for create index', (done) => {
       tracer.startRootSpan({name: 'indexRootSpan'}, (rootSpan: RootSpan) => {
         collection.createIndex({a: 1}, null, (err, result) => {
-          assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+          assert.strictEqual(rootSpanVerifier.endedSpans.length, 0);
           rootSpan.end();
           assert.ifError(err);
           assertSpan(
@@ -227,7 +220,7 @@ describe('MongoDBPlugin', () => {
     it('should create a child span for count', (done) => {
       tracer.startRootSpan({name: 'countRootSpan'}, (rootSpan: RootSpan) => {
         collection.count({a: 1}, (err, result) => {
-          assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+          assert.strictEqual(rootSpanVerifier.endedSpans.length, 0);
           rootSpan.end();
           assert.ifError(err);
           assertSpan(
@@ -249,12 +242,10 @@ describe('MongoDBPlugin', () => {
 
       tracer.startRootSpan({name: 'insertRootSpan'}, (rootSpan: RootSpan) => {
         collection.insertMany(insertData, (err, result) => {
-          assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+          assert.strictEqual(rootSpanVerifier.endedSpans.length, 0);
           rootSpan.end();
           assert.ifError(err);
-          assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 1);
-          assert.strictEqual(
-              rootSpanVerifier.endedRootSpans[0].spans.length, 0);
+          assert.strictEqual(rootSpanVerifier.endedSpans.length, 1);
           done();
         });
       });
@@ -263,12 +254,10 @@ describe('MongoDBPlugin', () => {
     it('should not create a child span for cursor', (done) => {
       tracer.startRootSpan({name: 'findRootSpan'}, (rootSpan: RootSpan) => {
         collection.find({}).toArray((err, result) => {
-          assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+          assert.strictEqual(rootSpanVerifier.endedSpans.length, 0);
           rootSpan.end();
           assert.ifError(err);
-          assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 1);
-          assert.strictEqual(
-              rootSpanVerifier.endedRootSpans[0].spans.length, 0);
+          assert.strictEqual(rootSpanVerifier.endedSpans.length, 1);
           done();
         });
       });
@@ -277,12 +266,10 @@ describe('MongoDBPlugin', () => {
     it('should not create a child span for command', (done) => {
       tracer.startRootSpan({name: 'indexRootSpan'}, (rootSpan: RootSpan) => {
         collection.createIndex({a: 1}, null, (err, result) => {
-          assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 0);
+          assert.strictEqual(rootSpanVerifier.endedSpans.length, 0);
           rootSpan.end();
           assert.ifError(err);
-          assert.strictEqual(rootSpanVerifier.endedRootSpans.length, 1);
-          assert.strictEqual(
-              rootSpanVerifier.endedRootSpans[0].spans.length, 0);
+          assert.strictEqual(rootSpanVerifier.endedSpans.length, 1);
           done();
         });
       });

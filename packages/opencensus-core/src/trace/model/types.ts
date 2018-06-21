@@ -19,9 +19,8 @@ import * as configTypes from '../config/types';
 import {Propagation} from '../propagation/types';
 import * as samplerTypes from '../sampler/types';
 
-
-
-/** Default type for functions */
+// A convenience type for functions that take any number of arguments and
+// return a value.
 // tslint:disable:no-any
 export type Func<T> = (...args: any[]) => T;
 
@@ -62,13 +61,13 @@ export interface Link {
 }
 
 /** Defines the trace options */
-export interface TraceOptions {
+export interface SpanOptions {
   /** Root span name */
   name: string;
   /** Trace context */
   spanContext?: SpanContext;
   /** Span kind */
-  kind?: string;
+  kind?: SpanKind;
 }
 
 /** Defines the span context */
@@ -81,80 +80,126 @@ export interface SpanContext {
   options?: number;
 }
 
-/** Defines an end span event listener */
+/**
+ * An interface that represents actions that should fire when a span starts or
+ * ends.
+ */
 export interface SpanEventListener {
-  /** Happens when a span is ended */
-  onStartSpan(span: RootSpan): void;
-  onEndSpan(span: RootSpan): void;
+  /**
+   * Called when a span starts.
+   * @param span The span that just started.
+   */
+  onStartSpan(span: SpanData): void;
+  /**
+   * Called when a span ends.
+   * @param span The span that just ended.
+   */
+  onEndSpan(span: SpanData): void;
 }
 
-/** Interface for Span */
-export interface Span {
-  /** The Span ID of this span */
-  readonly id: string;
+/**
+ * An interface that represents an object that can emit events when a span
+ * starts or ends.
+ */
+export interface SpanEventEmitter {
+  registerSpanEventListener(listener: SpanEventListener): void;
+  unregisterSpanEventListener(listener: SpanEventListener): void;
+}
 
-  /** If the parent span is in another process. */
-  remoteParent: boolean;
+/**
+ * An interface that represents the error status of a span.
+ */
+export interface Status {
+  code: number;
+  message: string;
+}
 
-  /** The span ID of this span's parent. If it's a root span, must be empty */
+/**
+ * An enumeration of the different types of spans. Can be used to specify
+ * additional relationships between spans in addition to a parent/child
+ * relationship.
+ */
+export enum SpanKind {
+  SPAN_KIND_UNSPECIFIED = 0,
+  SERVER = 1,
+  CLIENT = 2
+}
+
+/**
+ * An interface describing the data model for a span. A span represents a
+ * single operation within a trace.
+ */
+export interface SpanData {
+  /**
+   * A unique 16-byte identifier for a trace. All spans from the same trace
+   * share the same trace ID.
+   */
+  traceId: string;
+  /**
+   * A unique 8-byte identifier for a span within a trace, assigned when the
+   * span is created.
+   */
+  spanId: string;
+  /**
+   * The span ID of this span's parent span. If this is a root span, then this
+   * field must be an empty string.
+   */
   parentSpanId: string;
-
-  /** The resource name of the span */
+  /**
+   * A description of the span's operation.
+   */
   name: string;
-
-  /** Kind of span. */
-  kind: string;
-
-  /** An object to log information to */
-  logger: loggerTypes.Logger;
-
-  /** A final status for this span */
-  status: number;
-
-  /** A set of attributes, each in the format [KEY]:[VALUE] */
+  /**
+   * Distinguishes between spans generated in a particular context.
+   */
+  kind: SpanKind;
+  /**
+   * The start time of the span.
+   */
+  startTime: number;
+  /**
+   * The end time of the span.
+   */
+  endTime: number;
+  /**
+   * A set of attributes on the span.
+   */
   attributes: Attributes;
-
-  /** A text annotation with a set of attributes. */
-  annotations: Annotation[];
-
-  /** An event describing a message sent/received between Spans. */
-  messageEvents: MessageEvent[];
-
-  /** Pointers from the current span to another span */
+  /**
+   * A stack trace captured at the start of the span.
+   */
+  stackTrace: {};  // TODO(kjin)
+  /**
+   * The included time events.
+   */
+  timeEvents: Array<Annotation|MessageEvent>;
+  /**
+   * The included links.
+   */
   links: Link[];
-
-  /** true if span is a RootSpan */
-  isRootSpan: boolean;
-
-  /** Constructs a new SpanBaseModel instance. */
-  readonly traceId: string;
-
-  /** Indicates if span was started. */
-  readonly started: boolean;
-
-  /** Indicates if span was ended. */
-  readonly ended: boolean;
-
   /**
-   * Gives a timestap that indicates the span's start time in RFC3339 UTC
-   * "Zulu" format.
+   * An optional final status for this span.
    */
-  readonly startTime: Date;
-
+  status?: Status;
   /**
-   * Gives a timestap that indicates the span's end time in RFC3339 UTC
-   * "Zulu" format.
+   * A flag that identifies when a trace crosses a process boundary. True when
+   * the parent span belongs to the same process as the current span.
    */
-  readonly endTime: Date;
+  sameProcessAsParentSpan?: boolean;
+}
 
+/**
+ * An interface that represents a span. Consumers of this interface can
+ * manipulate the span and get the span context.
+ */
+export interface Span extends SpanEventEmitter {
   /**
-   * Gives a timestap that indicates the span's duration in RFC3339 UTC
-   * "Zulu" format.
+   * The raw span data.
    */
-  readonly duration: number;
+  readonly data: Readonly<SpanData>;
 
   /** Gives the TraceContext of the span. */
-  readonly spanContext: SpanContext;
+  getSpanContext(): SpanContext;
 
   /**
    * Adds an atribute to the span.
@@ -190,28 +235,31 @@ export interface Span {
    */
   addMessageEvent(type: string, id: string): void;
 
+  /**
+   * Sets the optional status code and message.
+   * @param code The status code.
+   * @param message The status message.
+   */
+  setStatus(code: number, message?: string): void;
+
   /** Starts a span. */
   start(): void;
 
   /** Ends a span. */
   end(): void;
 
-  /** Forces to end a span. */
+  /** Forces a span to end. */
   truncate(): void;
 }
 
 /** Interface for RootSpan */
 export interface RootSpan extends Span {
-  /** Get the span list from RootSpan instance */
-  readonly spans: Span[];
-
   /** Starts a new Span instance in the RootSpan instance */
-  startChildSpan(name: string, type: string): Span;
+  startChildSpan(name: string, kind?: SpanKind): Span;
 }
 
-
 /** Interface for Tracer */
-export interface Tracer extends SpanEventListener {
+export interface Tracer extends SpanEventEmitter, SpanEventListener {
   /** Get and set the currentRootSpan to tracer instance */
   currentRootSpan: RootSpan;
 
@@ -246,19 +294,7 @@ export interface Tracer extends SpanEventListener {
    * @param fn Callback function
    * @returns The callback return
    */
-  startRootSpan<T>(options: TraceOptions, fn: (root: RootSpan) => T): T;
-
-  /**
-   * Register a OnEndSpanEventListener on the tracer instance
-   * @param listener An OnEndSpanEventListener instance
-   */
-  registerSpanEventListener(listener: SpanEventListener): void;
-
-  /**
-   * Unregisters an end span event listener.
-   * @param listener The listener to unregister.
-   */
-  unregisterSpanEventListener(listener: SpanEventListener): void;
+  startRootSpan<T>(options: SpanOptions, fn: (root: RootSpan) => T): T;
 
   /** Clear the currentRootSpan from tracer instance */
   clearCurrentTrace(): void;
@@ -267,10 +303,9 @@ export interface Tracer extends SpanEventListener {
    * Start a new Span instance to the currentRootSpan
    * @param name Span name
    * @param type Span type
-   * @param parentSpanId Parent SpanId
    * @returns The new Span instance started
    */
-  startChildSpan(name?: string, type?: string, parentSpanId?: string): Span;
+  startChildSpan(name: string, type?: SpanKind): Span;
 
   /**
    * Binds the trace context to the given function.

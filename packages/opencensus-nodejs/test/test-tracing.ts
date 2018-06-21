@@ -16,7 +16,7 @@
 
 
 import * as core from '@opencensus/core';
-import {logger} from '@opencensus/core';
+import {logger, ConsoleLogger} from '@opencensus/core';
 import * as assert from 'assert';
 
 import {defaultConfig} from '../src/trace/config/default-config';
@@ -94,15 +94,15 @@ describe('Tracing', () => {
       it('should start tracing with a non-default logLevel', () => {
         aTracing = tracing.start({logLevel: 3});
         assert.strictEqual(tracing.config.logLevel, 3);
-        const consoleLogger = aTracing.tracer.logger as logger.ConsoleLogger;
+        const consoleLogger = aTracing.tracer.logger as ConsoleLogger;
         assert.strictEqual(consoleLogger.level, 'info');
       });
 
       it('should start tracing with a logger instance', () => {
-        const aLogger = logger.logger('debug');
+        const aLogger = new ConsoleLogger('debug');
         aTracing = tracing.start({logger: aLogger});
         assert.strictEqual(tracing.config.logger, aLogger);
-        const consoleLogger = aTracing.tracer.logger as logger.ConsoleLogger;
+        const consoleLogger = aTracing.tracer.logger as ConsoleLogger;
         assert.strictEqual(consoleLogger.level, 'debug');
       });
 

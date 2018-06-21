@@ -14,10 +14,8 @@
  * limitations under the License.
  */
 
-import {BasePlugin, Func, Span} from '@opencensus/core';
-import {logger, Logger} from '@opencensus/core';
+import {BasePlugin, Func, Span, SpanKind} from '@opencensus/core';
 import * as mongodb from 'mongodb';
-import * as semver from 'semver';
 import * as shimmer from 'shimmer';
 
 export type MongoDB = typeof mongodb;
@@ -26,7 +24,7 @@ export type MongoDB = typeof mongodb;
 export class MongoDBPlugin extends BasePlugin {
   private readonly SERVER_FNS = ['insert', 'update', 'remove', 'auth'];
   private readonly CURSOR_FNS_FIRST = ['_find', '_getmore'];
-  private readonly SPAN_MONGODB_QUERY_TYPE = 'db.mongodb.query';
+  private readonly SPAN_MONGODB_QUERY_TYPE = SpanKind.CLIENT;
 
   /** Constructs a new MongoDBPlugin instance. */
   constructor(moduleName: string) {

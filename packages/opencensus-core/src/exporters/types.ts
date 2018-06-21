@@ -14,19 +14,16 @@
  * limitations under the License.
  */
 
-
-import * as loggerTypes from '../common/types';
 import * as configTypes from '../trace/config/types';
-import * as modelTypes from '../trace/model/types';
+import {SpanData, SpanEventListener} from '../trace/model/types';
 
 /** Defines an exporter interface. */
-export interface Exporter extends modelTypes.SpanEventListener {
+export interface Exporter extends SpanEventListener {
   /**
    * Sends a list of root spans to the service.
    * @param rootSpans A list of root spans to publish.
    */
-
-  publish(rootSpans: modelTypes.RootSpan[]): Promise<number|string|void>;
+  publish(rootSpans: SpanData[]): Promise<number|string|void>;
 }
 
-export type ExporterConfig = configTypes.BufferConfig;
+export type ExporterConfig = Partial<configTypes.BufferConfig>;

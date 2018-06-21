@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import {Exporter, ExporterBuffer, ExporterConfig, RootSpan, Span} from '@opencensus/core';
+import {Exporter, ExporterBuffer, ExporterConfig, RootSpan, Span, ConsoleExporter, ConsoleLogger, SpanData, SpanKind} from '@opencensus/core';
 import {logger, Logger} from '@opencensus/core';
 import {request} from 'http';
 
@@ -50,20 +50,20 @@ export class InstanaTraceExporter implements Exporter {
     this.agentPort =
         options.agentPort || Number(process.env.INSTANA_AGENT_PORT) || 42699;
     this.transmissionTimeout = options.transmissionTimeout || 10000;
-    this.logger = options.logger || logger.logger();
+    this.logger = options.logger || new ConsoleLogger();
     this.exporterBuffer = new ExporterBuffer(this, options);
   }
 
-  onStartSpan(root: RootSpan) {}
+  onStartSpan(root: SpanData) {}
 
-  onEndSpan(root: RootSpan) {
+  onEndSpan(root: SpanData) {
     this.exporterBuffer.addToBuffer(root);
   }
 
   /**
    * Sends spans to Instana.
    *
-   * @param rootSpans The spans to transmit to Instana
+   * @param spans The spans to transmit to Instana
    * @returns An indicator whether publishing was successful. This method
    * purposefully does not return a rejected Promise, because the code path
    * calling the publish function does not expect a Promise to be returned. For
@@ -73,10 +73,10 @@ export class InstanaTraceExporter implements Exporter {
    *
    * This Promise is meant as a problem indicator for tests only.
    */
-  publish(rootSpans: RootSpan[]): Promise<void> {
+  publish(spans: SpanData[]): Promise<void> {
     try {
       return this
-          .transmit(this.translateRootSpans(rootSpans))
+          .transmit(this.translateRootSpans(spans))
 
           .catch(e => e);
     } catch (e) {
@@ -86,25 +86,21 @@ export class InstanaTraceExporter implements Exporter {
     }
   }
 
-  private translateRootSpans(rootSpans: RootSpan[]): InstanaSpan[] {
-    const result: InstanaSpan[] = [];
-    return rootSpans.reduce((agg, rootSpan) => {
-      agg.push(this.translateSpan(rootSpan));
-      return agg.concat(rootSpan.spans.map(this.translateSpan));
-    }, result);
+  private translateRootSpans(spans: SpanData[]): InstanaSpan[] {
+    return spans.map(span => this.translateSpan(span));
   }
 
-  private translateSpan(span: Span): InstanaSpan {
+  private translateSpan(span: SpanData): InstanaSpan {
     return {
-      spanId: span.id,
-      // Do not report parentId as null. Instead, drop the field.
+      spanId: span.spanId,
+      // Do not report parentId as empty. Instead, drop the field.
       parentId: span.parentSpanId ? span.parentSpanId : undefined,
       traceId: span.traceId.substring(0, 8),
-      timestamp: span.startTime.getTime(),
+      timestamp: span.startTime,
       // API requires an integer/long
-      duration: span.duration | 0,
+      duration: (span.endTime - span.startTime) | 0,
       name: span.name,
-      type: span.kind,
+      type: SpanKind[span.kind],
       // No translatable counterpart in OpenCensus as of 2018-06-14
       error: false,
       data: Object.keys(span.attributes)

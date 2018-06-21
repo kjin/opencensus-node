@@ -14,9 +14,7 @@
  * limitations under the License.
  */
 
-import {Exporter, ExporterBuffer, ExporterConfig, RootSpan, Span} from '@opencensus/core';
-import {logger, Logger} from '@opencensus/core';
-import {prototype} from 'events';
+import {Exporter, ExporterBuffer, ExporterConfig, Logger, RootSpan, Span, ConsoleLogger, SpanData} from '@opencensus/core';
 import * as http from 'http';
 import * as url from 'url';
 
@@ -49,19 +47,19 @@ export class ZipkinTraceExporter implements Exporter {
     this.zipkinUrl = url.parse(options.url);
     this.serviceName = options.serviceName;
     this.buffer = new ExporterBuffer(this, options);
-    this.logger = options.logger || logger.logger();
+    this.logger = options.logger || new ConsoleLogger();
   }
 
   /**
    * Is called whenever a span is ended.
-   * @param root the ended span
+   * @param span the ended span
    */
-  onEndSpan(root: RootSpan) {
-    this.buffer.addToBuffer(root);
+  onEndSpan(span: SpanData) {
+    this.buffer.addToBuffer(span);
   }
 
   /** Not used for this exporter */
-  onStartSpan(root: RootSpan) {}
+  onStartSpan() {}
 
   /**
    * Send a trace to zipkin service
@@ -112,39 +110,19 @@ export class ZipkinTraceExporter implements Exporter {
   }
 
   /**
-   * Mount a list (array) of spans translated to Zipkin format
-   * @param rootSpans Rootspan array to be translated
-   */
-  private mountSpanList(rootSpans: RootSpan[]): TranslatedSpan[] {
-    const spanList: TranslatedSpan[] = [];
-
-    for (const root of rootSpans) {
-      /** RootSpan data */
-      spanList.push(this.translateSpan(root));
-
-      // Builds spans data
-      for (const span of root.spans) {
-        spanList.push(this.translateSpan(span));
-      }
-    }
-
-    return spanList;
-  }
-
-  /**
    * Translate OpenSensus Span to Zipkin format
    * @param span Span to be translated
    * @param rootSpan Only necessary if the span has rootSpan
    */
-  private translateSpan(span: Span|RootSpan): TranslatedSpan {
+  private translateSpan(span: SpanData): TranslatedSpan {
     const spanTraslated = {
       traceId: span.traceId,
       name: span.name,
-      id: span.id,
+      id: span.spanId,
       parentId: span.parentSpanId,
       kind: 'SERVER',
-      timestamp: (span.startTime.getTime() * 1000).toFixed(),
-      duration: (span.duration * 1000).toFixed(),
+      timestamp: (span.startTime * 1000).toFixed(),
+      duration: ((span.endTime - span.startTime) * 1000).toFixed(),
       debug: true,
       shared: true,
       localEndpoint: {serviceName: this.serviceName}
@@ -157,10 +135,10 @@ export class ZipkinTraceExporter implements Exporter {
   // returning void
   /**
    * Send the rootSpans to zipkin service
-   * @param rootSpans RootSpan array
+   * @param spans RootSpan array
    */
-  publish(rootSpans: RootSpan[]) {
-    const spanList = this.mountSpanList(rootSpans);
+  publish(spans: SpanData[]) {
+    const spanList = spans.map(span => this.translateSpan(span));
 
     return this.sendTraces(spanList).catch((err) => {
       return err;

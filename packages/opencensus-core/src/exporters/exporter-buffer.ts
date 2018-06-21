@@ -14,15 +14,20 @@
  * limitations under the License.
  */
 
-import * as uuidv4 from 'uuid/v4';
 import * as logger from '../common/console-logger';
 import * as loggerTypes from '../common/types';
 import * as configTypes from '../trace/config/types';
-import * as modelTypes from '../trace/model/types';
+import {SpanData} from '../trace/model/types';
+
 import * as types from './types';
 
+const DEFAULT_BUFFER_SIZE = 10;
+const DEFAULT_BUFFER_TIMEOUT = 20000;
 
-/** Controls the sending of traces to exporters. */
+/**
+ * A class that queues trace spans until certain conditions are met, and then
+ * invokes an associated exporter's publish() function with the queued traces.
+ */
 export class ExporterBuffer {
   /** The service to send the collected spans. */
   private exporter: types.Exporter;
@@ -37,18 +42,23 @@ export class ExporterBuffer {
   /** An object to log information to */
   private logger: loggerTypes.Logger;
   /** Trace queue of a buffer */
-  private queue: modelTypes.RootSpan[] = [];
+  private queue: SpanData[] = [];
+  /**
+   * Counts the number of root spans.
+   */
+  private numberRootSpans = 0;
 
   /**
    * Constructs a new Buffer instance.
    * @param exporter The service to send the collected spans.
    * @param config A buffer configuration object to create a buffer.
    */
-  constructor(exporter: types.Exporter, config: configTypes.BufferConfig) {
+  constructor(
+      exporter: types.Exporter, config: Partial<configTypes.BufferConfig>) {
     this.exporter = exporter;
     this.logger = config.logger || logger.logger();
-    this.bufferSize = config.bufferSize;
-    this.bufferTimeout = config.bufferTimeout;
+    this.bufferSize = config.bufferSize || DEFAULT_BUFFER_SIZE;
+    this.bufferTimeout = config.bufferTimeout || DEFAULT_BUFFER_TIMEOUT;
     return this;
   }
 
@@ -65,18 +75,22 @@ export class ExporterBuffer {
     return this.bufferSize;
   }
 
-  getQueue(): modelTypes.RootSpan[] {
+  getQueue(): SpanData[] {
     return this.queue;
   }
   /**
    * Add a rootSpan in the buffer.
    * @param root RootSpan to be added in the buffer.
    */
-  addToBuffer(root: modelTypes.RootSpan) {
-    this.queue.push(root);
+  addToBuffer(span: SpanData) {
+    this.queue.push(span);
     this.logger.debug('ExporterBuffer: added new rootspan');
+    if (span.sameProcessAsParentSpan) {
+      // It's a root span.
+      this.numberRootSpans++;
+    }
 
-    if (this.queue.length > this.bufferSize) {
+    if (this.numberRootSpans > this.bufferSize) {
       this.flush();
     }
 
@@ -120,6 +134,7 @@ export class ExporterBuffer {
   /** Send the trace queue to all exporters */
   private flush() {
     this.exporter.publish(this.queue);
+    this.numberRootSpans = 0;
     this.queue = [];
     return this;
   }

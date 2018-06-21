@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import {RootSpan, Span} from '@opencensus/core';
+import {RootSpan, Span, SpanData} from '@opencensus/core';
 
 import {LatencyBucketBoundaries} from '../latency-bucket-boundaries';
 
@@ -34,7 +34,7 @@ export type Latency = {
  */
 export interface SelectedTraces {
   name: string;
-  traces: Array<Partial<Span>>;
+  traces: SpanData[];
   getCanonicalCode: (status: number) => string;
 }
 
@@ -85,39 +85,8 @@ const getCanonicalCode = (status: number) => {
   }
 };
 
-/**
- * Serializes known properties of a span.
- * The properties cloned are based on fields used in spans.ejs.
- * TODO(kjin): This is not a sustainable solution. Spans should be serializable.
- * This change should be made in the core module.
- * @param inputSpan The span to serialize.
- */
-function serializeSpan(inputSpan: Span|RootSpan): Partial<Span> {
-  const span: Partial<Span> = {
-    startTime: inputSpan.startTime,
-    duration: inputSpan.duration,
-    traceId: inputSpan.traceId,
-    id: inputSpan.id,
-    parentSpanId: inputSpan.id
-  };
-  if (inputSpan.isRootSpan) {
-    // We possibly need to assign the spans field that is only available
-    // on root spans. The core module doesn't export this as an
-    // exportable field.
-    // tslint:disable-next-line:no-any
-    (span as any).spans =
-        (inputSpan as RootSpan).spans.map((childSpan: Span) => ({
-                                            startTime: childSpan.startTime,
-                                            id: childSpan.id,
-                                            name: childSpan.name,
-                                            duration: childSpan.duration
-                                          }));
-  }
-  return span;
-}
-
 export class TracezPageHandler {
-  constructor(private readonly traceMap: Map<string, Span[]>) {}
+  constructor(private readonly traceMap: Map<string, SpanData[]>) {}
 
   private createSpanCell(spanName: string, stripedCell: boolean): SpanCell {
     const spans = this.traceMap.get(spanName)!;
@@ -141,16 +110,16 @@ export class TracezPageHandler {
 
     // Building span list
     for (const span of spans) {
-      if (span.status && span.status !== 0) {
+      if (span.status && span.status.code !== 0) {
         spanCell.ERRORS += 1;
-      } else if (span.ended) {
+      } else if (span.endTime !== 0) {
         const durationNs =
-            LatencyBucketBoundaries.millisecondsToNanos(span.duration);
+            LatencyBucketBoundaries.millisecondsToNanos(span.endTime - span.startTime);
         const latency =
             LatencyBucketBoundaries.getLatencyBucketBoundariesByTime(
                 durationNs);
         spanCell.latencies[latency.getName()] += 1;
-      } else if (span.started) {
+      } else if (span.startTime !== 0) {
         spanCell.RUNNING += 1;
       }
     }
@@ -205,16 +174,16 @@ export class TracezPageHandler {
       if (this.traceMap.has(params.tracename)) {
         for (const span of this.traceMap.get(params.tracename)!) {
           if (params.type === 'ERRORS') {
-            if (span.status !== 0) {
+            if (span.status && span.status.code !== 0) {
               traceList.push(span);
             }
           } else if (params.type === 'RUNNING') {
-            if (span.started && !span.ended) {
+            if (span.startTime !== 0 && span.endTime === 0) {
               traceList.push(span);
             }
-          } else if (span.ended && span.status === 0) {
+          } else if (span.endTime !== 0 && !span.status || span.status.code === 0) {
             const durationNs =
-                LatencyBucketBoundaries.millisecondsToNanos(span.duration);
+                LatencyBucketBoundaries.millisecondsToNanos(span.endTime - span.startTime);
             const latency =
                 LatencyBucketBoundaries.getLatencyBucketBoundariesByTime(
                     durationNs);
@@ -226,7 +195,7 @@ export class TracezPageHandler {
       }
       selectedTraces = {
         name: params.tracename,
-        traces: traceList.map(serializeSpan),
+        traces: traceList, // TODO(kjin): need to change the template.
         getCanonicalCode
       };
     }

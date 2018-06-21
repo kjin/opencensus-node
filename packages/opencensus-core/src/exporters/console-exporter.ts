@@ -15,7 +15,7 @@
  */
 
 import * as loggerTypes from '../common/types';
-import * as modelTypes from '../trace/model/types';
+import {SpanData} from '../trace/model/types';
 
 import {ExporterBuffer} from './exporter-buffer';
 import * as types from './types';
@@ -23,9 +23,9 @@ import * as types from './types';
 /** Do not send span data */
 export class NoopExporter implements types.Exporter {
   logger: loggerTypes.Logger;
-  onStartSpan(root: modelTypes.RootSpan) {}
-  onEndSpan(root: modelTypes.RootSpan) {}
-  publish(rootSpans: modelTypes.RootSpan[]) {
+  onStartSpan(span: SpanData) {}
+  onEndSpan(span: SpanData) {}
+  publish(spans: SpanData[]) {
     return Promise.resolve();
   }
 }
@@ -46,34 +46,22 @@ export class ConsoleExporter implements types.Exporter {
     this.logger = config.logger;
   }
 
-  onStartSpan(root: modelTypes.RootSpan) {}
+  onStartSpan(span: SpanData) {}
 
   /**
    * Event called when a span is ended.
-   * @param root Ended span.
+   * @param span Ended span.
    */
-  onEndSpan(root: modelTypes.RootSpan) {
-    this.buffer.addToBuffer(root);
+  onEndSpan(span: SpanData) {
+    this.buffer.addToBuffer(span);
   }
 
   /**
    * Sends the spans information to the console.
    * @param rootSpans
    */
-  publish(rootSpans: modelTypes.RootSpan[]) {
-    rootSpans.map((root) => {
-      const ROOT_STR = `RootSpan: {traceId: ${root.traceId}, spanId: ${
-          root.id}, name: ${root.name} }`;
-      const SPANS_STR: string[] = root.spans.map(
-          (span) => [`\t\t{spanId: ${span.id}, name: ${span.name}}`].join(
-              '\n'));
-      const result: string[] = [];
-
-      result.push(
-          ROOT_STR + '\n\tChildSpans:\n' +
-          `${SPANS_STR.join('\n')}`);
-      console.log(`${result}`);
-    });
+  publish(spans: SpanData[]) {
+    console.log(`${spans}`);
     return Promise.resolve();
   }
 }

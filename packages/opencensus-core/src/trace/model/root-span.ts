@@ -16,79 +16,61 @@
 
 import * as uuid from 'uuid';
 
-import * as logger from '../../common/console-logger';
-import {Clock} from '../../internal/clock';
+import {Logger} from '../../common/types';
 
-import {Span} from './span';
-import {SpanBase} from './span-base';
+import {BaseSpan, ChildSpan} from './base-span';
 import * as types from './types';
+import {Span, SpanData, SpanEventListener, SpanKind} from './types';
 
 
-/** Defines a root span */
-export class RootSpan extends SpanBase implements types.RootSpan {
-  /** A tracer object */
-  private tracer: types.Tracer;
+/**
+ * Defines a root span.
+ */
+export class RootSpan extends BaseSpan implements types.RootSpan,
+                                                  SpanEventListener {
   /** A list of child spans. */
-  private spansLocal: types.Span[];
-  /** It's trace ID. */
-  private traceIdLocal: string;
-  /** set isRootSpan = true */
-  readonly isRootSpan = true;
+  readonly spans: ChildSpan[] = [];
 
   /**
    * Constructs a new RootSpanImpl instance.
-   * @param tracer A tracer object.
-   * @param context A trace options object to build the root span.
+   * @param logger A logger.
+   * @param options A trace options object to build the root span.
    */
-  constructor(tracer: types.Tracer, context?: types.TraceOptions) {
-    super();
-    this.tracer = tracer;
-    this.traceIdLocal =
-        context && context.spanContext && context.spanContext.traceId ?
-        context.spanContext.traceId :
+  constructor(logger: Logger, options?: types.SpanOptions) {
+    super(logger);
+    this.data.traceId =
+        options && options.spanContext && options.spanContext.traceId ?
+        options.spanContext.traceId :
         (uuid.v4().split('-').join(''));
-    this.name = context && context.name ? context.name : 'undefined';
-    if (context && context.spanContext) {
-      this.parentSpanId = context.spanContext.spanId || '';
+    this.data.name = options && options.name ? options.name : 'undefined';
+    if (options && options.spanContext) {
+      this.data.parentSpanId = options.spanContext.spanId || '';
     }
-    this.spansLocal = [];
-    this.kind = context && context.kind ? context.kind : null;
-    this.logger = tracer.logger || logger.logger();
-  }
-
-  /** Gets span list from rootspan instance. */
-  get spans(): types.Span[] {
-    return this.spansLocal;
-  }
-
-  /** Gets trace id from rootspan instance. */
-  get traceId(): string {
-    return this.traceIdLocal;
-  }
-
-  /** Starts a rootspan instance. */
-  start() {
-    super.start();
-    this.logger.debug(
-        'starting %s  %o', this.className,
-        {traceId: this.traceId, id: this.id, parentSpanId: this.parentSpanId});
-
-    this.tracer.onStartSpan(this);
+    this.data.kind = options && options.kind ? options.kind : null;
+    // This flag distinguishes between root and child spans.
+    this.data.sameProcessAsParentSpan = false;
   }
 
   /** Ends a rootspan instance. */
   end() {
-    super.end();
-
-    for (const span of this.spansLocal) {
+    // Child spans MUST end before the the root ends.
+    for (const span of this.spans) {
       if (!span.ended && span.started) {
         span.truncate();
       }
     }
-
-    this.tracer.onEndSpan(this);
+    super.end();
   }
 
+  onStartSpan(data: SpanData) {
+    // Forward the event to this object's listeners.
+    this.listeners.forEach(l => l.onStartSpan(data));
+  }
+
+  onEndSpan(data: SpanData) {
+    // Forward the event to this object's listeners.
+    this.listeners.forEach(l => l.onEndSpan(data));
+  }
 
   /**
    * Starts a new child span in the root span.
@@ -96,29 +78,26 @@ export class RootSpan extends SpanBase implements types.RootSpan {
    * @param kind Span kind.
    * @param parentSpanId Span parent ID.
    */
-  startChildSpan(name: string, kind: string, parentSpanId?: string):
-      types.Span {
+  startChildSpan(name: string, kind: SpanKind = SpanKind.CLIENT): Span|null {
     if (this.ended) {
-      this.logger.debug(
-          'calling %s.startSpan() on ended %s %o', this.className,
-          this.className, {id: this.id, name: this.name, kind: this.kind});
+      this.logger.warn(`Can't start child span on ended root span: ${this}`);
       return null;
     }
     if (!this.started) {
-      this.logger.debug(
-          'calling %s.startSpan() on un-started %s %o', this.className,
-          this.className, {id: this.id, name: this.name, kind: this.kind});
+      this.logger.warn(
+          `Can't start child span on un-started root span: ${this}`);
       return null;
     }
-    const newSpan = new Span(this);
-    if (name) {
-      newSpan.name = name;
-    }
-    if (kind) {
-      newSpan.kind = kind;
-    }
-    newSpan.start();
-    this.spansLocal.push(newSpan);
-    return newSpan;
+    const childSpan = new ChildSpan(this.logger, {
+      traceId: this.data.traceId,
+      parentSpanId: this.data.spanId,
+      name,
+      kind
+    });
+    // Listen on child span lifetime events.
+    childSpan.registerSpanEventListener(this);
+    childSpan.start();
+    this.spans.push(childSpan);
+    return childSpan;
   }
 }

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import {CoreTracer, RootSpan, TracerConfig} from '@opencensus/core';
+import {CoreTracer, RootSpan, TracerConfig, SpanKind} from '@opencensus/core';
 import * as assert from 'assert';
 import * as http from 'http';
 import * as mocha from 'mocha';
@@ -60,10 +60,10 @@ describe('Instana Exporter', function() {
           .startRootSpan(
               {name: 'root-test'},
               async (rootSpan: RootSpan) => {
-                const span = rootSpan.startChildSpan('spanTest', 'spanType');
+                const span = rootSpan.startChildSpan('spanTest', SpanKind.CLIENT);
                 span.end();
                 rootSpan.end();
-                return exporter.publish([rootSpan, rootSpan]);
+                return exporter.publish([rootSpan.data, rootSpan.data]);
               })
           .then(error => assert.ifError(error));
     });

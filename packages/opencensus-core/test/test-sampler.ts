@@ -18,27 +18,29 @@ import * as assert from 'assert';
 import * as mocha from 'mocha';
 
 import {RootSpan} from '../src/trace/model/root-span';
-import {CoreTracer} from '../src/trace/model/tracer';
 import {SamplerBuilder} from '../src/trace/sampler/sampler';
-
-const tracer = new CoreTracer();
+import {TestLogger} from './logger';
 
 describe('Sampler', () => {
+  const logger = new TestLogger();
+
   /**
    * Should return true
    */
   describe('shouldSample() always', () => {
     it('should return a always sampler for 1', () => {
-      const root = new RootSpan(tracer);
+      const root = new RootSpan(logger);
       const sampler = SamplerBuilder.getSampler(1);
-      const samplerShouldSampler = sampler.shouldSample(root.traceId);
+      const samplerShouldSampler =
+          sampler.shouldSample(root.getSpanContext().traceId);
       assert.strictEqual(sampler.description, 'always');
       assert.ok(samplerShouldSampler);
     });
     it('should return a always sampler for >1', () => {
-      const root = new RootSpan(tracer);
+      const root = new RootSpan(logger);
       const sampler = SamplerBuilder.getSampler(100);
-      const samplerShouldSampler = sampler.shouldSample(root.traceId);
+      const samplerShouldSampler =
+          sampler.shouldSample(root.getSpanContext().traceId);
       assert.strictEqual(sampler.description, 'always');
       assert.ok(samplerShouldSampler);
     });
@@ -48,16 +50,18 @@ describe('Sampler', () => {
    */
   describe('shouldSample() never', () => {
     it('should return a never sampler for 0', () => {
-      const root = new RootSpan(tracer);
+      const root = new RootSpan(logger);
       const sampler = SamplerBuilder.getSampler(0);
-      const samplerShouldSampler = sampler.shouldSample(root.traceId);
+      const samplerShouldSampler =
+          sampler.shouldSample(root.getSpanContext().traceId);
       assert.strictEqual(sampler.description, 'never');
       assert.ok(!samplerShouldSampler);
     });
     it('should return a never sampler for negative value', () => {
-      const root = new RootSpan(tracer);
+      const root = new RootSpan(logger);
       const sampler = SamplerBuilder.getSampler(-1);
-      const samplerShouldSampler = sampler.shouldSample(root.traceId);
+      const samplerShouldSampler =
+          sampler.shouldSample(root.getSpanContext().traceId);
       assert.strictEqual(sampler.description, 'never');
       assert.ok(!samplerShouldSampler);
     });
@@ -65,10 +69,11 @@ describe('Sampler', () => {
 
   describe('shouldSample() probability', () => {
     it('should return a probability sampler', () => {
-      const root = new RootSpan(tracer);
+      const root = new RootSpan(logger);
       const sampler = SamplerBuilder.getSampler(0.7);
       assert.ok(sampler.description.indexOf('probability') >= 0);
-      const samplerShouldSampler = sampler.shouldSample(root.traceId);
+      const samplerShouldSampler =
+          sampler.shouldSample(root.getSpanContext().traceId);
       assert.ok(samplerShouldSampler ? samplerShouldSampler : true);
     });
   });

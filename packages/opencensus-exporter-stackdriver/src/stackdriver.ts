@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-import {Exporter, ExporterBuffer, ExporterConfig, RootSpan, Span, SpanContext} from '@opencensus/core';
-import {logger, Logger} from '@opencensus/core';
+import {Exporter, ExporterBuffer, ExporterConfig, Logger, RootSpan, Span, SpanContext, ConsoleLogger, SpanData} from '@opencensus/core';
 import {auth, JWT} from 'google-auth-library';
 import {google} from 'googleapis';
 
@@ -58,42 +57,39 @@ export class StackdriverTraceExporter implements Exporter {
   projectId: string;
   exporterBuffer: ExporterBuffer;
   logger: Logger;
-  failBuffer: SpanContext[] = [];
+  // TODO: Remove this field. It is being used for testing.
+  failBuffer: SpanData[];
 
   constructor(options: StackdriverExporterOptions) {
     this.projectId = options.projectId;
-    this.logger = options.logger || logger.logger();
+    this.logger = options.logger || new ConsoleLogger();
     this.exporterBuffer = new ExporterBuffer(this, options);
   }
 
   /**
    * Is called whenever a span is ended.
-   * @param root the ended span
+   * @param span the ended span
    */
-  onEndSpan(root: RootSpan) {
-    this.exporterBuffer.addToBuffer(root);
+  onEndSpan(span: SpanData) {
+    this.exporterBuffer.addToBuffer(span);
   }
 
   /** Not used for this exporter */
-  onStartSpan(root: RootSpan) {}
+  onStartSpan() {}
 
   /**
    * Publishes a list of root spans to Stackdriver.
-   * @param rootSpans
+   * @param spans
    */
-  publish(rootSpans: RootSpan[]) {
-    const stackdriverTraces =
-        rootSpans.map(trace => this.translateTrace(trace));
+  publish(spans: SpanData[]) {
+    const stackdriverTraces = this.translateSpans(spans);
 
     return this.authorize(stackdriverTraces)
         .then((traces: TracesWithCredentials) => {
           return this.sendTrace(traces);
-        })
-        .catch(err => {
-          for (const root of rootSpans) {
-            this.failBuffer.push(root.spanContext);
-          }
-          return err;
+        }).catch(err => {
+          this.failBuffer.push(...spans);
+          throw err;
         });
   }
 
@@ -101,24 +97,36 @@ export class StackdriverTraceExporter implements Exporter {
    * Translates root span data to Stackdriver's trace format.
    * @param root
    */
-  private translateTrace(root: RootSpan): TranslatedTrace {
-    const spanList = root.spans.map((span: Span) => this.translateSpan(span));
-    spanList.push(this.translateSpan(root));
-
-    return {projectId: this.projectId, traceId: root.traceId, spans: spanList};
+  private translateSpans(spans: SpanData[]): TranslatedTrace[] {
+    // Extract the list of unique trace IDs into traceIds.
+    const traceIds = spans.reduce((knownIds, span) => {
+      if (knownIds.indexOf(span.traceId) === -1) {
+        knownIds.push(span.traceId);
+      }
+      return knownIds;
+    }, []);
+    return traceIds.map(traceId => {
+      // Get all spans with this trace ID
+      const matchingSpans = spans.filter(span => span.traceId === traceId);
+      return {
+        projectId: this.projectId,
+        traceId: traceId,
+        spans: matchingSpans.map(span => this.translateSpan(span))
+      };
+    })
   }
 
   /**
    * Translates span data to Stackdriver's span format.
    * @param span
    */
-  private translateSpan(span: Span): TranslatedSpan {
+  private translateSpan(span: SpanData): TranslatedSpan {
     return {
       name: span.name,
       kind: 'SPAN_KIND_UNSPECIFIED',
-      spanId: span.id,
-      startTime: span.startTime,
-      endTime: span.endTime
+      spanId: span.spanId,
+      startTime: new Date(span.startTime),
+      endTime: new Date(span.endTime)
     };
   }
 
@@ -126,7 +134,7 @@ export class StackdriverTraceExporter implements Exporter {
    * Sends traces in the Stackdriver format to the service.
    * @param traces
    */
-  private sendTrace(traces: TracesWithCredentials) {
+  private sendTrace(traces: TracesWithCredentials): Promise<string> {
     return new Promise((resolve, reject) => {
       cloudTrace.projects.patchTraces(traces, (err: Error) => {
         if (err) {

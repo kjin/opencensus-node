@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 import * as core from '@opencensus/core';
-import {Logger, logger} from '@opencensus/core';
+import {ConsoleLogger} from '@opencensus/core';
 
 import * as extend from 'extend';
 
@@ -72,7 +72,7 @@ export class Tracing implements core.Tracing {
         true, {}, defaultConfig, {plugins: this.defaultPlugins}, userConfig);
 
     this.logger =
-        this.configLocal.logger || logger.logger(this.configLocal.logLevel);
+        this.configLocal.logger || new ConsoleLogger(this.configLocal.logLevel);
     this.configLocal.logger = this.logger;
     this.logger.debug('config: %o', this.configLocal);
     this.pluginLoader = new PluginLoader(this.logger, this.tracer);
